@@ -1,0 +1,3 @@
+app/data/state.db
+app/__pycache__/
+*.pyc
