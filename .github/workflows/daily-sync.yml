@@ -1,0 +1,42 @@
+name: Bellhaven daily CRM sync (proposal generation)
+
+# Runs the read-only half of the pipeline every day: scrape the site, pull
+# the CRM, diff, and write new proposals into the state DB. It never
+# approves anything -- a human still has to open the review app and click
+# Approve for any write to reach the CRM. This job's only "write" is
+# committing the updated data/state.db back to the repo so proposals persist
+# across runs (swap for a hosted DB/S3 if you don't want state in git).
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 12:00 UTC daily -- adjust to your team's morning
+  workflow_dispatch: {}    # allow manual "Run workflow" trigger too
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt
+
+      - name: Run pipeline (read + propose only, no writes to CRM)
+        working-directory: app
+        env:
+          BELLHAVEN_API_TOKEN: ${{ secrets.BELLHAVEN_API_TOKEN }}
+        run: python pipeline.py
+
+      - name: Persist proposal queue
+        run: |
+          git config user.name "bellhaven-sync-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add app/data/state.db app/data/scraped_locations.json
+          git diff --cached --quiet || git commit -m "Daily sync: new proposals $(date -u +%F)"
+          git push
